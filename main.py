@@ -5,6 +5,8 @@ from torchvision.datasets import ImageFolder
 from pathlib import Path
 from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
+from torch.optim import SGD
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 class SmallCNN(nn.Module):
     def __init__(self):
@@ -28,11 +30,15 @@ class SmallCNN(nn.Module):
         x = self.fc(x) # logits
         return x
 
+EPOCH_COUNT = 100
+
 def train_small_cnn(cnn: SmallCNN):
     device = next(cnn.parameters()).device
-    step = 0.01
+    lr = 0.1
+    optimizer = SGD(cnn.parameters(), lr=lr, momentum=0.9, weight_decay=0.0001)
+    scheduler = CosineAnnealingLR(optimizer, T_max=EPOCH_COUNT)
     best_acc = 0
-    for epoch in range(100):
+    for epoch in range(EPOCH_COUNT):
         print(f"Starting epoch {epoch}")
         cnn.train()
         avg_loss = 0
@@ -47,16 +53,17 @@ def train_small_cnn(cnn: SmallCNN):
             avg_loss += loss.item()
             
             # backward
-            cnn.zero_grad()
+            optimizer.zero_grad()
             loss.backward()
 
             # update
-            for param in cnn.parameters():
-                param.data += -step * param.grad
+            optimizer.step()
+        
+        scheduler.step() # Once per epoch, not per batch like an idiot would do (not me)!!
         
         # eval
         acc = evaluate_small_cnn(cnn, val_loader)
-        print(f"Finished epoch {epoch}, avg_loss: {avg_loss/(epoch+1)}, val_acc: {acc}")
+        print(f"Finished epoch {epoch}, avg_loss: {avg_loss/len(train_loader):.4f}, val_acc: {acc}, LR: {scheduler.get_lr()[0]:.4f}")
         if acc > best_acc:
             best_acc = acc
             print(f"Found new best model with acc: {acc}")
@@ -72,7 +79,7 @@ def evaluate_small_cnn(cnn: SmallCNN, loader: DataLoader):
         for images, labels in loader:
             images, labels = images.to(device), labels.to(device)
             z = cnn(images)
-            preds = torch.argmax(z, dim=-1)
+            preds = torch.argmax(z, dim=1)
             correct += (preds == labels).sum().item()
             total += labels.size(0)
     
@@ -98,9 +105,9 @@ image_folder_reduced, _ = random_split(image_folder, [subset_size, len(image_fol
 )
 print(f"Sizes: train_dataset={len(train_dataset)} val_dataset={len(val_dataset)}, test_dataset={len(test_dataset)}")
 
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False)
 
 
 if __name__ == "__main__":
@@ -108,7 +115,7 @@ if __name__ == "__main__":
     print(str(torch.__version__))
 
     cnn = SmallCNN()
-    cnn.to("cuda")
+    cnn.to("cpu")
     train_small_cnn(cnn)
 
 
