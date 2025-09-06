@@ -7,24 +7,39 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
 from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from torchvision.transforms import functional as TF
+from PIL import Image
+from torch import Tensor
 
 class SmallCNN(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes: int):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(1,  16, kernel_size=3, stride=1, padding=1) # (16,28,28)
-        self.conv2 = nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1) # (16,14,14)
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=0) # (32,14,14)
-        self.conv4 = nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1) # (32,7,7)
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(1,  16, kernel_size=3, stride=1, padding=1), # (16,28,28)
+            nn.ReLU(),
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1), # (16,14,14)
+            nn.ReLU(),
+        )
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1), # (32,14,14)
+            nn.ReLU(),
+        )
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1), # (32,7,7)
+            nn.ReLU(),
+        )
 
         self.gap = nn.AdaptiveAvgPool2d((1,1))
-        self.fc  = nn.Linear(32, 128)
+        self.fc  = nn.Linear(32, num_classes)
     
     def forward(self, x):
-        x = relu(self.conv1(x))
-        x = relu(self.conv2(x))
-        x = relu(self.conv3(x))
-        x = relu(self.conv4(x))
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
         x = self.gap(x)
         x = torch.flatten(x, 1)
         x = self.fc(x) # logits
@@ -34,7 +49,7 @@ EPOCH_COUNT = 100
 
 def train_small_cnn(cnn: SmallCNN):
     device = next(cnn.parameters()).device
-    lr = 0.1
+    lr = 0.01
     optimizer = SGD(cnn.parameters(), lr=lr, momentum=0.9, weight_decay=0.0001)
     scheduler = CosineAnnealingLR(optimizer, T_max=EPOCH_COUNT)
     best_acc = 0
@@ -85,13 +100,20 @@ def evaluate_small_cnn(cnn: SmallCNN, loader: DataLoader):
     
     return correct / total
 
+def alpha_as_input(img: Tensor) -> Tensor:
+    return img[3:4,:,:]
+
 transform = transforms.Compose([
-    transforms.Grayscale(),       # ensure single channel if needed
     transforms.ToTensor(),        # converts HxW or HxWxC → tensor
-    transforms.Normalize(0.5, 0.5)  # optional: scale to [-1,1]
+    transforms.Lambda(alpha_as_input),   # invert colors
+    # transforms.Normalize(0.5, 0.5)  # optional: scale to [-1,1]
 ])
 
-image_folder = ImageFolder(Path("dataset"), transform=transform)
+def rgba_loader(path):
+    img = Image.open(path).convert("RGBA")
+    return img
+image_folder = ImageFolder(Path("dataset"), transform=transform, loader=rgba_loader)
+print(f"Num classes: {len(image_folder.classes)}")
 
 gen = torch.Generator().manual_seed(42)
 
@@ -105,16 +127,18 @@ image_folder_reduced, _ = random_split(image_folder, [subset_size, len(image_fol
 )
 print(f"Sizes: train_dataset={len(train_dataset)} val_dataset={len(val_dataset)}, test_dataset={len(test_dataset)}")
 
-train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
+imgs, labels = next(iter(train_loader))
+print(imgs.min().item(), imgs.max().item())
 
 if __name__ == "__main__":
     print("hello")
     print(str(torch.__version__))
 
-    cnn = SmallCNN()
+    cnn = SmallCNN(num_classes=10)
     cnn.to("cpu")
     train_small_cnn(cnn)
 
