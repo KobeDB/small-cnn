@@ -14,3 +14,4 @@ if __name__ == "__main__":
             pixel = image.getpixel((i,j))
             print(f"{pixel[3]:.1f} ", end="")
         print()
+    

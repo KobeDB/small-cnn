@@ -1,15 +1,21 @@
+from pathlib import Path
+
 import torch
+from torch import Tensor
 import torch.nn as nn
 from torch.nn.functional import relu, cross_entropy
-from torchvision.datasets import ImageFolder
-from pathlib import Path
 from torch.utils.data import DataLoader, random_split
+
 from torchvision import transforms
+from torchvision.datasets import ImageFolder
+from torchvision.transforms import functional as TF
+
 from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torchvision.transforms import functional as TF
+
 from PIL import Image
-from torch import Tensor
+
+MODEL_SAVE_PATH = Path("model.pth")
 
 class SmallCNN(nn.Module):
     def __init__(self, num_classes: int):
@@ -49,9 +55,7 @@ EPOCH_COUNT = 100
 
 def train_small_cnn(cnn: SmallCNN):
     device = next(cnn.parameters()).device
-    lr = 0.01
-    optimizer = SGD(cnn.parameters(), lr=lr, momentum=0.9, weight_decay=0.0001)
-    scheduler = CosineAnnealingLR(optimizer, T_max=EPOCH_COUNT)
+    lr = 0.1
     best_acc = 0
     for epoch in range(EPOCH_COUNT):
         print(f"Starting epoch {epoch}")
@@ -68,17 +72,16 @@ def train_small_cnn(cnn: SmallCNN):
             avg_loss += loss.item()
             
             # backward
-            optimizer.zero_grad()
+            cnn.zero_grad()
             loss.backward()
 
             # update
-            optimizer.step()
-        
-        scheduler.step() # Once per epoch, not per batch like an idiot would do (not me)!!
+            for param in cnn.parameters():
+                param.data += -lr * param.grad
         
         # eval
         acc = evaluate_small_cnn(cnn, val_loader)
-        print(f"Finished epoch {epoch}, avg_loss: {avg_loss/len(train_loader):.4f}, val_acc: {acc}, LR: {scheduler.get_lr()[0]:.4f}")
+        print(f"Finished epoch {epoch}, avg_loss: {avg_loss/len(train_loader):.4f}, val_acc: {acc}, LR: {lr}")
         if acc > best_acc:
             best_acc = acc
             print(f"Found new best model with acc: {acc}")
@@ -131,9 +134,6 @@ train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
-imgs, labels = next(iter(train_loader))
-print(imgs.min().item(), imgs.max().item())
-
 if __name__ == "__main__":
     print("hello")
     print(str(torch.__version__))
@@ -141,6 +141,3 @@ if __name__ == "__main__":
     cnn = SmallCNN(num_classes=10)
     cnn.to("cpu")
     train_small_cnn(cnn)
-
-
-    
